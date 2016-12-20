@@ -71,9 +71,10 @@ export class SelectTemplateController {
    */
   startTest(): void {
     let stack: che.IStack = angular.copy(this.stack);
+    /* tslint:disable */
     stack.workspaceConfig.name = 'test-wksp-' + (('0000' + (Math.random() * Math.pow(36, 4) << 0).toString(36)).slice(-4));
-    stack.workspaceConfig.projects = this.selectedTemplates;
-    this.callbackController.showStackTestPopup(stack);
+    /* tslint:enable */
+    this.callbackController.showStackTestPopup(stack, this.selectedTemplates);
     this.hide();
   }
 

@@ -10,9 +10,9 @@
  */
 'use strict';
 import {CheStack} from '../../../components/api/che-stack.factory';
+import {CheWorkspace} from '../../../components/api/che-workspace.factory';
 import {CheNotification} from '../../../components/notification/che-notification.factory';
 import {CheUIElementsInjectorService} from '../../../components/injector/che-ui-elements-injector.service';
-import {CheWorkspace} from '../../../components/api/che-workspace.factory';
 
 const STACK_TEST_POPUP_ID: string = 'stackTestPopup';
 
@@ -25,12 +25,13 @@ const STACK_TEST_POPUP_ID: string = 'stackTestPopup';
 export class StackController {
   GENERAL_SCOPE: string = 'general';
   ADVANCED_SCOPE: string = 'advanced';
+  $q: ng.IQService;
   $log: ng.ILogService;
   $route: ng.route.IRoute;
   $scope: ng.IScope;
+  $timeout: ng.ITimeoutService;
   $document: ng.IDocumentService;
   $filter: ng.IFilterService;
-  $timeout: ng.ITimeoutService;
   $location: ng.ILocationService;
   $mdDialog: ng.material.IDialogService;
   cheUIElementsInjectorService: CheUIElementsInjectorService;
@@ -57,13 +58,14 @@ export class StackController {
    * Default constructor that is using resource injection
    * @ngInject for Dependency injection
    */
-  constructor($route: ng.route.IRoute, $location: ng.ILocationService, $log: ng.ILogService, $filter: ng.IFilterService, cheStack: CheStack, cheWorkspace: CheWorkspace, $mdDialog: ng.material.IDialogService, cheNotification: CheNotification, $timeout: ng.ITimeoutService, $document: ng.IDocumentService, cheUIElementsInjectorService: CheUIElementsInjectorService, $scope: ng.IScope, $window: ng.IWindowService) {
+  constructor($q: ng.IQService, $timeout: ng.ITimeoutService, $route: ng.route.IRoute, $location: ng.ILocationService, $log: ng.ILogService, $filter: ng.IFilterService, cheStack: CheStack, cheWorkspace: CheWorkspace, $mdDialog: ng.material.IDialogService, cheNotification: CheNotification, $document: ng.IDocumentService, cheUIElementsInjectorService: CheUIElementsInjectorService, $scope: ng.IScope, $window: ng.IWindowService) {
+    this.$q = $q;
+    this.$timeout = $timeout;
     this.$location = $location;
     this.$log = $log;
     this.$route = $route;
     this.$scope = $scope;
     this.$filter = $filter;
-    this.$timeout = $timeout;
     this.cheStack = cheStack;
     this.cheWorkspace = cheWorkspace;
     this.$mdDialog = $mdDialog;
@@ -101,7 +103,16 @@ export class StackController {
 
     $window.addEventListener('message', (event: {data: string}) => {
       if ('show-ide' === event.data) {
+        if (this.tmpWorkspaceId) {
+          //TODO remove this delay after fixing time of update tree
+          this.$timeout(() => {
+            this.showIDE = true;
+            this.$scope.$digest();
+          }, 10000);
+          return;
+        }
         this.showIDE = true;
+        this.$scope.$digest();
       }
     }, false);
   }
@@ -347,13 +358,86 @@ export class StackController {
   }
 
   /**
+   * Add projects sequentially by iterating on the number of the projects.
+   * @param workspaceId{string} - the ID of the workspace to use for adding commands
+   * @param projects{Array<any>} - the array to follow
+   * @param index{number} - the index of the array of commands
+   * @param deferred{ng.IDeferred<any>}
+   */
+  updateProjects(workspaceId: string, projects: Array<any>, index: number, deferred: ng.IDeferred<any>) {
+    if (index < projects.length) {
+      let project = angular.copy(projects[index]);
+      this.cheWorkspace.getWorkspaceAgent(workspaceId).getProject().updateProject(project.name, project).then(() => {
+        if (project.commands && project.commands.length > 0) {
+          let deferredAddCommand = this.$q.defer();
+          this.addCommand(workspaceId, project.name, project.commands, 0, deferredAddCommand);
+          deferredAddCommand.promise.then(() => {
+            this.updateProjects(workspaceId, projects, ++index, deferred);
+          }, (error: any) => {
+            deferred.reject(error);
+          });
+        } else {
+          this.updateProjects(workspaceId, projects, ++index, deferred);
+        }
+      }, (error: any) => {
+        deferred.reject(error);
+      });
+    } else {
+      deferred.resolve();
+    }
+  }
+
+  /**
+   * Add commands sequentially by iterating on the number of the commands.
+   * @param workspaceId{string} - the ID of the workspace to use for adding commands
+   * @param projectName{string} - the name that will be used to prefix the commands inserted
+   * @param commands{Array<any>} - the array to follow
+   * @param index{number} - the index of the array of commands
+   * @param deferred{ng.IDeferred<any>}
+   */
+  addCommand(workspaceId: string, projectName: string, commands: Array<any>, index: number, deferred: ng.IDeferred<any>): void {
+    if (index < commands.length) {
+      let newCommand = angular.copy(commands[index]);
+      newCommand.name = projectName + ': ' + newCommand.name;
+      let addPromise = this.cheWorkspace.addCommand(workspaceId, newCommand);
+      addPromise.then(() => {
+        // call the method again
+        this.addCommand(workspaceId, projectName, commands, ++index, deferred);
+      }, (error: any) => {
+        deferred.reject(error);
+      });
+    } else {
+      deferred.resolve();
+    }
+  }
+
+  /**
    * Show popup for stack's testing
    * @param stack {che.IStack}
+   * @param projects {Array<che.IProject>}
    */
-  showStackTestPopup(stack: che.IStack): void {
+  showStackTestPopup(stack: che.IStack, projects: Array<che.IProject>): void {
     this.showIDE = false;
-    this.cheWorkspace.startTemporaryWorkspace(stack.workspaceConfig).then((workspace: any) => {
+    stack.workspaceConfig.projects = [];
+    let deferredUpdateProjects = this.$q.defer();
+    this.cheWorkspace.startTemporaryWorkspace(stack.workspaceConfig).then((workspace: che.IWorkspace) => {
       this.tmpWorkspaceId = workspace.id;
+      this.cheWorkspace.getWorkspacesById().set(workspace.id, workspace);
+      this.cheWorkspace.fetchStatusChange(workspace.id, 'RUNNING').then(() => {
+        if (projects && projects.length) {
+          this.cheWorkspace.fetchWorkspaceDetails(workspace.id).then(() => {
+            this.showIDE = false;
+            this.cheWorkspace.getWorkspaceAgent(workspace.id).getProject().createProjects(projects).then(() => {
+              this.updateProjects(workspace.id, projects, 0, deferredUpdateProjects);
+            }, (error: any) => {
+              this.showIDE = true;
+              this.$log.error(error);
+            });
+          });
+        }
+      });
+      this.cheWorkspace.startUpdateWorkspaceStatus(workspace.id);
+
       let tmpWorkspaceIdeUrl: string = '';
       angular.forEach(workspace.links, (link: any) => {
         if (link.rel === 'ide url') {
@@ -365,13 +449,20 @@ export class StackController {
         this.cheNotification.showError('Testing stack failed.');
         return;
       }
+      let bodyEl = this.$document.find('body');
       let testPopupEl: string = '<che-modal-popup id="' + STACK_TEST_POPUP_ID + '" ' +
         'title="Testing Stack: ' + stack.name + '" on-close="stackController.closeStackTestPopup()">' +
         '<div ng-hide="stackController.showIDE" class="main-page-loader">' +
         '<div class="ide-page-loader-content"><img ng-src="{{branding.loaderURL}}"></div></div>' +
         '<iframe ng-show="stackController.showIDE" class="ide-page-frame" ' +
         'src="' + tmpWorkspaceIdeUrl.toString() + '"></iframe></che-modal-popup>';
-      this.cheUIElementsInjectorService.injectAdditionalElement(this.$document.find('body'), testPopupEl, this.$scope);
+      this.cheUIElementsInjectorService.injectAdditionalElement(bodyEl, testPopupEl, this.$scope);
+      deferredUpdateProjects.promise.then(() => {
+        this.cheUIElementsInjectorService.injectAdditionalElement(bodyEl, testPopupEl, this.$scope);
+      }, (error: any) => {
+        this.showIDE = true;
+        this.$log.error(error);
+      });
     }, (error: any) => {
       this.cheNotification.showError(error.data.message !== null ? error.data.message : 'Testing stack failed.');
       this.closeStackTestPopup();

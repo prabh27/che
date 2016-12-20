@@ -16,10 +16,12 @@ import com.google.inject.Provider;
 import com.google.inject.Singleton;
 import com.google.web.bindery.event.shared.EventBus;
 
+import org.eclipse.che.api.core.model.workspace.WorkspaceStatus;
 import org.eclipse.che.ide.actions.StopWorkspaceAction;
 import org.eclipse.che.ide.api.action.ActionManager;
 import org.eclipse.che.ide.api.action.DefaultActionGroup;
 import org.eclipse.che.ide.api.action.IdeActions;
+import org.eclipse.che.ide.api.app.AppContext;
 import org.eclipse.che.ide.api.constraints.Constraints;
 import org.eclipse.che.ide.api.extension.Extension;
 import org.eclipse.che.ide.api.icon.Icon;
@@ -94,7 +96,8 @@ public class MachineExtension {
                             final EventBus eventBus,
                             final Provider<ServerPortProvider> machinePortProvider,
                             final PerspectiveManager perspectiveManager,
-                            final Provider<MachineStatusHandler> machineStatusHandlerProvider) {
+                            final Provider<MachineStatusHandler> machineStatusHandlerProvider,
+                            final AppContext appContext) {
         this.perspectiveManager = perspectiveManager;
 
         machineResources.getCss().ensureInjected();
@@ -131,6 +134,10 @@ public class MachineExtension {
                 });
             }
         });
+
+        if (appContext.getWorkspace() != null && WorkspaceStatus.STARTING == appContext.getWorkspace().getStatus()) {
+            maximizeTerminal();
+        }
     }
 
     /**
