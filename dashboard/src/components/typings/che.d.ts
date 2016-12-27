@@ -52,14 +52,15 @@ declare namespace _che {
   }
 
   export interface IStack {
-    name: string;
-    description: string;
-    projects: Array<any>;
-    tags: Array<string>;
-    scope: string;
-    components: Array<any>;
+    id?: string;
+    name?: string;
+    description?: string;
+    tags?: Array<string>;
+    creator?: string;
+    scope?: string;
+    components?: Array<any>;
     source: any;
-    workspaceConfig: IWorkspace;
+    workspaceConfig: IWorkspaceConfig;
   }
 
   export interface IWorkspace {
@@ -79,13 +80,30 @@ declare namespace _che {
   export interface IWorkspaceConfig {
     name?: string;
     defaultEnv?: string;
-    environments?: IWorkspaceEnvironments;
-    projects: Array <any>;
+    environments?: {[envName: string]: IWorkspaceEnvironment};
+    projects?: Array <any>;
     commands?: Array <any>;
   }
 
-  export interface IWorkspaceEnvironments {
-      [envName: string]: any;
+  export interface IWorkspaceEnvironment {
+    machines: IMachines;
+    recipe: IRecipe;
+  }
+
+  export interface IMachines {
+    [machineName: string]: IMachine;
+  }
+
+  export interface IMachine {
+    agents?: Array<string>;
+    servers?: any;
+    attributes: any;
+  }
+
+  export interface IRecipe {
+    content: string;
+    contentType?: string;
+    type: string;
   }
 
   export interface IProject {
@@ -126,4 +144,15 @@ declare namespace _che {
     };
   }
 
+  export interface IEditorOptions {
+    mode: string;
+    lineNumbers: boolean;
+    lineWrapping: boolean;
+    matchBrackets: boolean;
+  }
+
+  export interface IValidation {
+    isValid: boolean;
+    errors: Array<string>;
+  }
 }
